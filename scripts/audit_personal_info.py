@@ -95,10 +95,23 @@ def scan_history():
     except Exception as e:
         return ["history scan unavailable: %s" % e]
     # commit identity lines (Author:/Commit:) are the repo owner handle —
-    # metadata, not content; scan only the actual diffs
-    lines = [ln for ln in out.splitlines()
-             if not (ln.startswith("Author:") or ln.startswith("Commit:"))]
-    scan_text("<git history>", "\n".join(lines), findings)
+    # metadata, not content; scan only the actual diffs. Also skip diff hunks
+    # of files the tree scan allowlists (this audit script + test fixtures
+    # legitimately carry the sensitive literals / synthetic MACs).
+    keep, skip = [], False
+    for ln in out.splitlines():
+        if ln.startswith("diff --git a/scripts/audit_personal_info.py") or \
+           ln.startswith("diff --git a/scripts/test_govee.py"):
+            skip = True
+            continue
+        if ln.startswith("diff --git") or ln.startswith("commit "):
+            skip = False
+        if skip:
+            continue
+        if ln.startswith("Author:") or ln.startswith("Commit:"):
+            continue
+        keep.append(ln)
+    scan_text("<git history>", "\n".join(keep), findings)
     return findings
 
 
