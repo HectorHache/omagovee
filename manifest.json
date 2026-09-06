@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.pythonmalone.omagovee",
+  "name": "Govee Lights",
+  "version": "0.1.0",
+  "author": "@PythonMalone",
+  "license": "MIT",
+  "description": "Control Govee lights from the bar: power, brightness, color temperature, RGB, and scenes. Cloud API only; your key stays on your machine.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Govee Lights",
+    "description": "One status glyph in the bar; the panel controls every Govee light on the account (power, brightness, color temp, colors, scenes).",
+    "category": "Smart Home",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}

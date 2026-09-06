@@ -1,0 +1,18 @@
+# secrets — never tracked
+govee.key*
+*.goveelh
+*.key
+!test_govee.py
+
+# runtime state/cache (helper-owned)
+state/
+cache/
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# os
+.DS_Store

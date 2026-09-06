@@ -1,0 +1,17 @@
+{
+  "_comment": "Govee API exposes NO numeric ranges (verified 2026-09-06 on H6076: devices list and state response carry values only). Slider bounds come from this table: capability presence drives which controls render, this drives bounds. Errors surface honestly, never silently clamped. brightness 1-100 is universal. _default applies to unknown SKUs. Verify/adjust per SKU as user reports arrive (doctor prints detected SKUs + applied bounds).",
+  "_default": { "colorTemperatureK": [2000, 9000] },
+  "H6076":  { "colorTemperatureK": [2700, 6500] },
+  "H6002":  { "colorTemperatureK": [2700, 6500] },
+  "H6054":  { "colorTemperatureK": [2700, 6500] },
+  "H6056":  { "colorTemperatureK": [2700, 6500] },
+  "H6199":  { "colorTemperatureK": [2700, 6500] },
+  "H6065":  { "colorTemperatureK": [2700, 6500] },
+  "H6072":  { "colorTemperatureK": [2000, 9000] },
+  "H6078":  { "colorTemperatureK": [2000, 9000] },
+  "H6087":  { "colorTemperatureK": [2700, 6500] },
+  "H6091":  { "colorTemperatureK": [2700, 6500] },
+  "H61A1":  { "colorTemperatureK": [2000, 9000] },
+  "H61A2":  { "colorTemperatureK": [2000, 9000] },
+  "H61B2":  { "colorTemperatureK": [2700, 6500] }
+}
