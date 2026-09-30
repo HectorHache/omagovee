@@ -11,7 +11,10 @@ import Quickshell.Io
 //
 // Use one instance per concurrent operation (panel + bar + per-action slots);
 // each instance runs one process at a time and reports busy while running.
-QtObject {
+//
+// NOTE: root must be a visual type (Item), not QtObject — QtObject has no
+// default property, so a nested Process child cannot be assigned.
+Item {
   id: root
 
   property string script: ""           // absolute path to scripts/govee.py
@@ -23,7 +26,15 @@ QtObject {
   signal failed(string op, var data)
 
   function run(op, args) {
-    if (proc.running) return false
+    // onStreamFinished can fire before running flips false — retry briefly
+    // instead of silently refusing chained runs (list -> state).
+    if (proc.running) {
+      if (_retryCount >= 8) { _retryCount = 0; console.log("omagovee-dbg: run refused for", op); return false }
+      _retryCount++
+      Qt.callLater(function () { root.run(op, args) })
+      return true
+    }
+    _retryCount = 0
     var cmd = ["/usr/bin/python3", root.script]
     for (var i = 0; i < args.length; i++) cmd.push(args[i])
     proc.command = cmd
@@ -31,11 +42,13 @@ QtObject {
     proc.running = true
     _op = op
     _parsed = false
+    console.log("omagovee-dbg: spawn " + op + " args=" + args.join(" ").slice(0, 60))
     return true
   }
 
   property string _op: ""
   property bool _parsed: false
+  property int _retryCount: 0
 
   function _deliver(raw) {
     var text = String(raw || "")

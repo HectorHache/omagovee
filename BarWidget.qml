@@ -17,11 +17,20 @@ BarWidget {
   property var devices: []           // list-cmd rows (kinds/bounds), cached
   property var states: []            // state-cmd rows (values)
   property string errorText: ""      // last helper error message ("" = clean)
-  property bool busy: helper.busy || (panelLoader.item ? panelLoader.item.busy : false)
+  property bool busy: hList.busy || hState.busy || (panelLoader.item ? panelLoader.item.busy : false)
   property bool panelOpen: panelLoader.item ? panelLoader.item.opened : false
   property int updatedTs: 0
 
-  readonly property bool hasKey: root.errorText.indexOf("no_key") < 0
+  readonly property bool hasKey: String(root.errorText || "").indexOf("no_key") < 0
+
+  // Same taxonomy as the panel: transient cloud/budget hiccups are silent;
+  // errorText (red) is reserved for meaningful failures.
+  function isTransient(err) {
+    if (err === undefined || err === null || err === "") return true
+    var e = String(err).toLowerCase()
+    return e === "rate_limited" || e === "network" || e === "bad_response"
+        || e === "timeout" || e === "500" || e === "502" || e === "503" || e === "504"
+  }
   readonly property string agg: M.aggregate(root.states, root.errorText, root.hasKey)
 
   // ---- state-driven colors ------------------------------------------------
@@ -52,9 +61,16 @@ BarWidget {
     if ("widget" in t) t.widget = root
   }
 
+  // Host contract — Bar.summonBarWidget/hideBarWidget/isBarWidgetOpen call
+  // open()/close()/opened on the live widget (hotkeys, popout switching).
+  function open() { if (panelLoader.item) panelLoader.item.open() }
+  function close() { if (panelLoader.item) panelLoader.item.close() }
   function togglePanel() { if (panelLoader.item) panelLoader.item.toggle() }
-  function openPanel() { if (panelLoader.item) panelLoader.item.open() }
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
+  readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
+  function closeForPopoutSwitch() { if (panelLoader.item) panelLoader.item.closeForPopoutSwitch() }
+  onBarChanged: root.injectPanel()
+  onSettingsChanged: root.injectPanel()
 
   Loader {
     id: panelLoader
@@ -66,44 +82,71 @@ BarWidget {
 
   // ---- data ----------------------------------------------------------------
   Helper {
-    id: helper
+    id: hList
     script: Qt.resolvedUrl("scripts/govee.py").toString().replace("file://", "")
     onOk: function (op, d) {
-      if (op === "state") {
-        root.states = d.devices || []
-        root.errorText = ""
-        root.updatedTs = Math.floor(Date.now() / 1000)
-      } else if (op === "list") {
-        root.devices = d.devices || []
-        // chain: after the first inventory, pull values (helper cache keeps
-        // this cheap; each Helper runs one process at a time)
-        if (!helper.busy) helper.run("state", ["state"])
-      }
+      console.log("omagovee-dbg: widget list ok n=" + (d.devices ? d.devices.length : "none"))
+      root.devices = d.devices || []
+      root.errorText = ""
+      root.updatedTs = Math.floor(Date.now() / 1000)
+      if (!hState.busy) hState.run("state", ["state"])
     }
     onFailed: function (op, d) {
-      root.errorText = (d && d.error === "no_key")
-                       ? "no_key"
-                       : String(d.message || d.error || "unknown error")
-      if (op === "list") root.devices = []
-      if (op === "state") root.states = []
+      if (d && d.error === "no_key") { root.errorText = "no_key"; root.devices = []; return }
+      if (root.isTransient(d && d.error)) {
+        Qt.callLater(function () { if (!root.busy) root.refresh() }, 10000)
+        return  // silent: keep last list, fast retry after rate walls
+      }
+      root.errorText = String(d.message || d.error || "unknown error")
+    }
+  }
+  Helper {
+    id: hState
+    script: Qt.resolvedUrl("scripts/govee.py").toString().replace("file://", "")
+    onOk: function (op, d) {
+      console.log("omagovee-dbg: widget state ok n=" + (d.devices ? d.devices.length : "none"))
+      root.states = d.devices || []
+      root.errorText = ""
+      root.updatedTs = Math.floor(Date.now() / 1000)
+    }
+    onFailed: function (op, d) {
+      console.log("omagovee-dbg: widget state failed " + (d && d.error) + " " + (d && d.message))
+      if (d && d.error === "no_key") { root.errorText = "no_key"; root.states = []; return }
+      if (root.isTransient(d && d.error)) {
+        Qt.callLater(function () { if (!root.busy) root.refresh() }, 10000)
+        return  // silent: keep last states, fast retry after rate walls
+      }
+      root.errorText = String(d.message || d.error || "unknown error")
     }
   }
 
   function refresh() {
-    if (helper.busy) return
-    if (root.devices.length === 0) helper.run("list", ["list"])
-    else helper.run("state", ["state"])
+    console.log("omagovee-dbg: refresh devices=" + root.devices.length + " busy=" + (hList.busy || hState.busy))
+    if (hList.busy || hState.busy) return
+    if (root.devices.length === 0) hList.run("list", ["list"])
+    else hState.run("state", ["state"])
   }
 
-  // Poll only while the panel is open (D4); helper cache absorbs repeats.
+  // Glyph freshness: poll while the panel is open (60 s) AND a slow always-on
+  // tick (90 s) so externally-changed lamps (phone app) eventually surface.
+  // The helper's 60 s state cache absorbs the overlap.
   Timer {
     id: pollTimer
-    interval: 60000
+    interval: 30000
     running: root.panelOpen
     onTriggered: root.refresh()
   }
+  Timer {
+    id: slowTimer
+    interval: 45000
+    running: true
+    repeat: true
+    onTriggered: root.refresh()
+  }
 
-  Component.onCompleted: root.refresh()
+  Component.onCompleted: { console.log("omagovee-dbg: BarWidget onCompleted"); root.refresh() }
+
+
 
   // ---- glyph ----------------------------------------------------------------
   implicitWidth: button.implicitWidth
@@ -121,9 +164,9 @@ BarWidget {
 
     onPressed: function (b) {
       if (!root.bar) return
-      // middle click reserved for v1.1 scene cycling (mouse-less-first design
-      // lands there with keybinds/touchpad); left opens the panel
-      if (b !== Qt.MiddleButton) root.togglePanel()
+      if (b === Qt.MiddleButton) { root.refresh(); return }
+      // left/right open the panel; middle = manual refresh (host convention)
+      root.togglePanel()
     }
 
     Rectangle {

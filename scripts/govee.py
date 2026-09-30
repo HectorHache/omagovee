@@ -527,9 +527,24 @@ def cmd_set(args, key):
                 results.append({"device": mask_id(d.get("device", "")), "ok": False,
                                 "error": e.code, "message": e.message})
         ok = all(r["ok"] for r in results)
-        jout({"ok": ok, "op": "master", "value": target, "per_device": results},
-             "CONTROL OK (master fan-out, %d lamp%s)" % (len(results), "s" if len(results) != 1 else "") if ok
-             else "CONTROL FAILED (master fan-out)")
+        if not ok:
+            errors = [r for r in results if not r["ok"]]
+            # all-rate-limited fan-out = retryable, not a failure: surface the
+            # code so the panel requeues once quietly (re-applying to already
+            # ok devices is idempotent — same target)
+            if all(r.get("error") == "rate_limited" for r in errors):
+                raise ApiError(
+                    "rate_limited",
+                    "master fan-out rate-limited (%d/%d devices)" % (len(errors), len(lamps)),
+                    retry_after=10)
+            first = next(r for r in errors if r.get("error") != "rate_limited")
+            jout({"ok": False, "op": "master", "value": target, "per_device": results,
+                  "error": first.get("error", "control_failed"),
+                  "message": first.get("message", "control failed")},
+                 "CONTROL FAILED (master fan-out)")
+        else:
+            jout({"ok": ok, "op": "master", "value": target, "per_device": results},
+                 "CONTROL OK (master fan-out, %d lamp%s)" % (len(results), "s" if len(results) != 1 else ""))
         return
     if args.group:
         target = 1 if str(args.value).strip().lower() in ("1", "true", "on") else 0
